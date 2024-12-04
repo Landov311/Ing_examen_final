@@ -1,94 +1,91 @@
-from flask import Flask, render_template, request, jsonify
-import requests
+from flask import Flask, jsonify, request
 from datetime import datetime
-
-ListaUsuarios=[]
-
-now = datetime.now() #para la fecha de envío
-
 
 app = Flask(__name__)
 
-class usuario: 
-    
-    def __init__(self, alias, nombre, ListaContactos):
+ListaUsuarios = {}
+
+class Usuario:
+    def __init__(self, alias, nombre):
         self.alias = alias
         self.nombre = nombre
-        self.ListaContactos = ListaContactos
-        self.MensajesEnviados = []
-        self.MensajesRecibidos = []
-        ListaUsuarios.append(self)
-    
-    def verContactos(self):
-        return jsonify(self.ListaContactos)
-    
-    def agregarContacto(self, alias, nombre_real):
-        nuevo = contacto(alias, now)
-        user = usuario(alias, nombre_real, []) 
-        if user not in ListaUsuarios:
-            ListaUsuarios.append(user)
-        if nuevo not in self.ListaContactos:
-            self.ListaContactos.append(nuevo)
-            return jsonify(nuevo)
-        else:
-            return "Ya existe el contacto"
+        self.contactos = []
+        self.mensajes_enviados = []
+        self.mensajes_recibidos = []
+
+    def ver_contactos(self):
+        return jsonify([c.alias for c in self.contactos])
+
+    def agregar_contacto(self, alias_contacto):
+        if alias_contacto not in ListaUsuarios:
+            return jsonify({"error": "El usuario no existe"}), 404
+        contacto = ListaUsuarios[alias_contacto]
+        if contacto not in self.contactos:
+            self.contactos.append(contacto)
+            return jsonify({"mensaje": f"Contacto {alias_contacto} agregado con éxito"}), 201
+        return jsonify({"error": "El contacto ya existe"}), 400
+
+    def enviar_mensaje(self, alias_destinatario, contenido):
+        if alias_destinatario not in [c.alias for c in self.contactos]:
+            return jsonify({"error": "El destinatario no está en la lista de contactos"}), 400
+        mensaje = Mensaje(self.alias, alias_destinatario, contenido)
+        destinatario = ListaUsuarios[alias_destinatario]
+        self.mensajes_enviados.append(mensaje)
+        destinatario.mensajes_recibidos.append(mensaje)
+        return jsonify({"mensaje": "Mensaje enviado con éxito"}), 200
+
+    def ver_mensajes_recibidos(self):
+        return jsonify([vars(m) for m in self.mensajes_recibidos])
 
 
-    def enviarMensaje(self, destinatario, mensaje):
-        message = mensaje(self.alias, destinatario, mensaje, now)
-        if destinatario not in self.ListaContactos:
-            return "No existe el contacto"
-        self.MensajesEnviados[destinatario].append(message)
-        return jsonify(self.MensajesEnviados)
-    
-    def verHistorialMensajes(self):
-        return jsonify(self.MensajesRecibidos)
-
-class mensaje:
-    def __init__(self,remitente, destinatario,contenido, fechaEnvio):
+class Mensaje:
+    def __init__(self, remitente, destinatario, contenido):
         self.remitente = remitente
-        self.destinatario = destinatario 
+        self.destinatario = destinatario
         self.contenido = contenido
-        self.fechaEnvio = fechaEnvio
-    
-class contacto:
-    def __init__(self, alias, fechaRegistro):
-        self.alias = alias
-        self.fechaRegistro = fechaRegistro
+        self.fecha_envio = datetime.now()
 
 
+@app.route('/mensajeria/contactos/<alias>', methods=['GET'])
+def ver_contactos(alias):
+    if alias in ListaUsuarios:
+        return ListaUsuarios[alias].ver_contactos()
+    return jsonify({"error": "Usuario no encontrado"}), 404
 
-@app.route('/mensajeria/contactos?mialias={alias} GET')
-def contactos(alias):
-    print("holaaa")
-    return ListaUsuarios[alias].verContactos()
 
-@app.route('/mensajeria/contactos/{alias} POST')
+@app.route('/mensajeria/contactos/<alias>', methods=['POST'])
 def agregar_contacto(alias):
-    alias = request.json['contacto']
-    nombre_real = request.json['nombre']
-    return ListaUsuarios[alias].agregarContacto(alias, nombre_real)
+    if alias not in ListaUsuarios:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    data = request.json
+    return ListaUsuarios[alias].agregar_contacto(data['contacto'])
 
-@app.route('/mensajeria/enviar POST')
-def enviar():
-    usuario = request.json['usuario']
-    destinatario = request.json['contacto']
-    mensaje = request.json['mensaje']
-    return ListaUsuarios[usuario].enviarMensaje(destinatario, mensaje)
 
-@app.route('/mensajeria/recibidos?mialias={alias} GET')
-def mensajes(alias):
-    return ListaUsuarios[alias].verHistorialMensajes()
+@app.route('/mensajeria/enviar', methods=['POST'])
+def enviar_mensaje():
+    data = request.json
+    alias = data['usuario']
+    if alias not in ListaUsuarios:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    return ListaUsuarios[alias].enviar_mensaje(data['contacto'], data['mensaje'])
+
+
+@app.route('/mensajeria/recibidos/<alias>', methods=['GET'])
+def mensajes_recibidos(alias):
+    if alias in ListaUsuarios:
+        return ListaUsuarios[alias].ver_mensajes_recibidos()
+    return jsonify({"error": "Usuario no encontrado"}), 404
+
 
 @app.route('/')
 def index():
     return "Hello, World!"
 
-usuario_1 = usuario(alias="camotito",nombre="camilo",ListaContactos=["luis"])     
-usuario_2 = usuario(alias="pikachu",nombre="jose",ListaContactos=["camotito"])
-usuario_3 = usuario(alias="luis",nombre="luis",ListaContactos=[])
+
+# Creación de usuarios iniciales
+ListaUsuarios["camotito"] = Usuario("camotito", "Camilo")
+ListaUsuarios["pikachu"] = Usuario("pikachu", "José")
+ListaUsuarios["luis"] = Usuario("luis", "Luis")
 
 if __name__ == "__main__":
     app.run(debug=True)
-
-
